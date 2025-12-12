@@ -10,12 +10,42 @@ class VoiceEvents(commands.Cog):
         self.bot = bot
         self.mongo = MongoDB()
 
+    async def scan_existing_voice_members(self):
+        collection = self.mongo.db.points
+        print("🔎 Verificando membros já conectados em calls...")
+
+        for guild in self.bot.guilds:
+            for channel in guild.voice_channels:
+                for member in channel.members:
+                    user_id = str(member.id)
+
+                    user_data = await collection.find_one({"user_id": user_id})
+                    if user_data and "last_join" in user_data:
+                        continue
+
+                    now = datetime.datetime.now(UTC3)
+                    print(
+                        f"➡️   {member} está conectado em {channel.name}, registrando entrada retroativa "
+                        f"- {now.strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+
+                    await collection.update_one(
+                        {"user_id": user_id},
+                        {
+                            "$set": {"last_join": datetime.datetime.utcnow()},
+                            "$setOnInsert": {"user_name": str(member)}
+                        },
+                        upsert=True
+                    )
+        print("Verificação de calls concluída!")
+
+
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         collection = self.mongo.db.points
         user_id = str(member.id)
 
-        # viadinho entra na call
+        # entrou na call
         if before.channel is None and after.channel is not None:
             now = datetime.datetime.now(UTC3)
             print(f"{member} entrou na call - {now.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -29,7 +59,7 @@ class VoiceEvents(commands.Cog):
                 upsert=True
             )
 
-        # viadinho sai da call
+        # saiu da call
         if before.channel is not None and after.channel is None:
             now = datetime.datetime.now(UTC3)
             print(f"{member} saiu da call - {now.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -51,6 +81,7 @@ class VoiceEvents(commands.Cog):
                     "$unset": {"last_join": ""}
                 }
             )
+
             print(f"{member} ganhou {points_to_add} pontos por {minutes} minutos em call.")
 
 async def setup(bot):
